@@ -4835,86 +4835,65 @@ vstring spectrumToRGB(long color, long maxColor) {
 } // spectrumToRGB
 
 /*###########################################################################*/
-// Some inline helper functions for use in the HTML portion of the function
-// getTextLongMath.
+// New */
 
-static flag eatAllDigits( vstring tokname, long offset ) {
-  while  ( tokname[offset] ) {
-    if ( !isdigit( (unsigned char)tokname[offset++] ) )
-      return 0;
-  }
-  return 1;
+// Some inline helper functions used in the g_htmlFlag == true part of
+// getTexLongMath().
+
+// Retuen offset of first non-alphabetic character (or end of string) starting
+// from the passed argument 'offset'.
+static long eatLetters(vstring tokname, long offset) {
+  while( isalpha((unsigned char)tokname[offset]) )
+    ++offset;
+  return offset;
 }
 
-// Test for any math symbol token that needs a space *before* it in a certain
-// context to look good. This would be an object variable, term, class, or
-// integer constant.
-static flag needSpaceBefore( vstring tokname ) {
+// Return offset of first non-digit character (or end of string) starting from
+// the passed argument 'offset'.
+static long eatDigits(vstring tokname, long offset) {
+  while ( isdigit((unsigned char)tokname[offset]) )
+    ++offset;
+  return offset;
+}
 
-  if ( !strcmp(tokname, "s`" ) )
-    return 1;
+// Must be a one or more alphabetic characters followed by one or more digits.
+static long isObjectVar(vstring tokname)
+{
+  long offset;
 
-  if ( isalpha( (unsigned char)tokname[0] ) ) {
-    if ( ( ( tokname[0] == 't' ) || ( tokname[0] == 'c' ) )
-      && ( tokname[1] == '_' ) ) {
-      // Likely a term or lower case class variable. Match another
-      // letter and possible trailing digits.
-      if ( isalpha( (unsigned char)tokname[2]) )
-        return eatAllDigits(tokname, 3);
-      }
-      else {
-        // Begins with a single letter. Match possible trailing digits.
-        return eatAllDigits(tokname, 1);
-      }
-    } else if ( isdigit( (unsigned char)tokname[0] )
-      || ( tokname[0] == '-' ) ) {
-      // Likely an integer. Match possible trailing digits.
-      return eatAllDigits(tokname, 1);
+  if ( isalpha((unsigned char)tokname[0]) ) {
+    offset = eatLetters(tokname, 0);
+    if ( !tokname[ eatDigits(tokname, offset) ] )
+      return 1;
   }
   return 0;
 }
 
-// Test for any math symbol token that needs a space *after* it in a certain
-// context to look good. This would be an object variable, term, class, or
-// integer constant.
-static flag needSpaceAfter( vstring tokname ) {
-    
-  if ( isalpha( (unsigned char)tokname[0] ) ) {
-    if ( ( ( tokname[0] == 't' ) || ( tokname[0] == 'c' ) )
-      && ( tokname[1] == '_' ) ) {
-      // Likely a term or lower case class variable. Match another
-      // letter and possible trailing digits.
-      if ( isalpha( (unsigned char)tokname[2]) )
-        return eatAllDigits(tokname, 3);
-      }
-      else {
-        // Begins with a single letter. Match possible trailing digits.
-        return eatAllDigits(tokname, 1);
-      }
-    } else if ( isdigit( (unsigned char)tokname[0] )
-      || ( tokname[0] == '-' ) ) {
-      // Likely an integer. Match possible trailing digits.
-      return eatAllDigits(tokname, 1);
-  }
-  return 0;
-}
+// Must be "w_" followed by one or more alphabetic characters followed by one
+// or more digits.
+static long isWFFVar(vstring tokname)
+{  
+  long offset;
 
-// Object variable or class variable.
-static flag isObjOrClassVar( vstring tokname ) {
-
-  if ( isalpha( (unsigned char)tokname[0] ) ) {
-    if ( ( tokname[0] == 'c' ) && ( tokname[1] == '_' ) ) {
-    // Likely a lower case class variable. Match another letter and
-    // possible trailing digits.
-    if ( isalpha( (unsigned char)tokname[2]) )
-        return eatAllDigits(tokname, 3);
-    }
-    else {
-      // Begins with a single letter. Match possible trailing digits.
-      return eatAllDigits(tokname, 1);
+  if ( ( tokname[0] == 'w' ) && ( tokname[1] == '_' ) ) {
+    if ( isalpha((unsigned char)tokname[2]) ) {
+      offset = eatLetters(tokname, 2);
+      if ( !tokname[ eatDigits(tokname, offset) ] )
+        return 1;
     }
   }
   return 0;
+}
+
+static long isQuantifier(vstring tokname)
+{
+  return ( 
+       ( !strcmp(tokname, "A.") )
+    || ( !strcmp(tokname, "E.") )
+    || ( !strcmp(tokname, "F/") )
+    || ( !strcmp(tokname, "F/t") )
+    || ( !strcmp(tokname, "E!") )
+  );
 }
 
 /*###########################################################################*/
@@ -4970,6 +4949,39 @@ vstring getTexLongMath(nmbrString *mathString, long statemNum)
       }
     } else { // HTML
 
+/*#############################################################################
+// New */
+
+      // If we have a quantifier, followed by an object variable, followed by
+      // anything other than an opening parenthesis, other quantifier, or wff
+      // variable, add a space between the latter two tokens.
+      if (pos >= 2) {
+        if (
+          isQuantifier(g_MathToken[mathString[pos - 2]].tokenName)
+          && isObjectVar(g_MathToken[mathString[pos - 1]].tokenName)
+          && strcmp( g_MathToken[mathString[pos]].tokenName, "(")
+          && !isQuantifier( g_MathToken[mathString[pos]].tokenName)
+          && !isWFFVar(g_MathToken[mathString[pos]].tokenName) ) {
+
+          let(&texLine, cat(texLine, " ", NULL)); // Add a space.
+        }
+      }
+
+      // If we have a negation, i.e "-.", add a space immediately before it,
+      // unless the previous token was an opening parenthesis.
+      if (pos >= 1) {
+        if (
+          strcmp(g_MathToken[mathString[pos-1]].tokenName, "(")
+          && !strcmp(g_MathToken[mathString[pos]].tokenName, "-.") ) {
+            let(&texLine, cat(texLine, " ", NULL)); // Add a space.
+          }
+      }
+
+      let(&texLine, cat(texLine, tex, NULL));
+
+/*#############################################################################
+// Original
+
       // When we have something like "E. x e. om x = y", the lack of
       // space between om and x looks ugly in HTML.  This kludge adds it in
       // for restricted quantifiers not followed by parenthesis, in order
@@ -4999,82 +5011,6 @@ vstring getTexLongMath(nmbrString *mathString, long statemNum)
           let(&texLine, cat(texLine, " ", NULL)); // Add a space
         }
       }
-
-      // This one puts a space between the 2 x's in a case like "E. x x = y".  E.g. cla4egf
-      if ( pos >= 2 ) {
-        // Match any math token that needs a space *before* it when it is the first token
-        // within a quantified statement.
-        if ( needSpaceBefore( g_MathToken[mathString[pos]].tokenName ) ) {
-          // Match an object variable or class variable. This might need a space after it
-          // if it is a quantified variable or class variable restricted by "ran" or "dom".
-          if ( isObjOrClassVar( g_MathToken[mathString[pos - 1]].tokenName  ) ) {
-            // See if it's the first token in a quantifier statement.
-            if (!strcmp(g_MathToken[mathString[pos - 2]].tokenName, "E.")
-              || !strcmp(g_MathToken[mathString[pos - 2]].tokenName, "A.")
-              || !strcmp(g_MathToken[mathString[pos - 2]].tokenName, "F/")
-              || !strcmp(g_MathToken[mathString[pos - 2]].tokenName, "F/t")
-              || !strcmp(g_MathToken[mathString[pos - 2]].tokenName, "E!")
-              // space btwn A,x in "E! x e. dom A x A y"
-              || !strcmp(g_MathToken[mathString[pos - 2]].tokenName, "ran")
-              || !strcmp(g_MathToken[mathString[pos - 2]].tokenName, "dom")
-              || !strcmp(g_MathToken[mathString[pos - 2]].tokenName, "E*")) {
-              let(&texLine, cat(texLine, " ", NULL)); // Add a space
-            }
-          }
-        }
-      }
-
-      // This one puts a space after a letter followed by a word token
-      // e.g. "A" and "suc" in "A. x e. U. A suc" in limuni2.
-      if (pos >= 1) {
-        // See if the next token is "suc"
-        if (!strcmp(g_MathToken[mathString[pos]].tokenName, "suc")) {
-          // Match any math token that needs a space *after* it when it comes
-          // immediately before a word token.
-          if ( needSpaceAfter(g_MathToken[mathString[pos - 1]].tokenName ) ) {
-              let(&texLine, cat(texLine, " ", NULL)); // Add a space
-            }
-        }
-      }
-
-      // This one puts a space before any "-." that doesn't come after
-      // a parentheses e.g. ax-6 has both cases.
-      if (pos >=1) {
-        // See if we have a non-parenthesis followed by not
-        if (strcmp(g_MathToken[mathString[pos - 1]].tokenName, "(")
-            && !strcmp(g_MathToken[mathString[pos]].tokenName, "-.")) {
-          let(&texLine, cat(texLine, " ", NULL)); // Add a space
-        }
-      }
-
-      // This one puts a space between "S" and "(" in df-iso.
-      if (pos >=4) {
-        if (!strcmp(g_MathToken[mathString[pos - 4]].tokenName, "Isom")
-            && !strcmp(g_MathToken[mathString[pos - 2]].tokenName, ",")
-            && !strcmp(g_MathToken[mathString[pos]].tokenName, "(")) {
-          let(&texLine, cat(texLine, " ", NULL)); // Add a space
-        }
-      }
-
-      // This one puts a space between "}" and "(" in funcnvuni proof.
-      if (pos >=1) {
-        // See if we have "}" followed by "("
-        if (!strcmp(g_MathToken[mathString[pos - 1]].tokenName, "}")
-            && !strcmp(g_MathToken[mathString[pos]].tokenName, "(")) {
-          let(&texLine, cat(texLine, " ", NULL)); // Add a space
-        }
-      }
-      
-      // This one puts a space between "}" and "{" in konigsberg proof.
-      if (pos >=1) {
-        // See if we have "}" followed by "("
-        if (!strcmp(g_MathToken[mathString[pos - 1]].tokenName, "}")
-            && !strcmp(g_MathToken[mathString[pos]].tokenName, "{")) {
-          let(&texLine, cat(texLine, " ", NULL)); // Add a space
-        }
-      }
-
-      /*-----------------------------------------------------------------------
       // This one puts a space between the 2 x's in a case like "E. x x = y".  E.g. cla4egf
       if (pos >=2) {
         // Match a token starting with a letter
@@ -5104,7 +5040,7 @@ vstring getTexLongMath(nmbrString *mathString, long statemNum)
             }
           }
         }
-      } 
+      }
       // This one puts a space after a letter followed by a word token
       // e.g. "A" and "suc" in "A. x e. U. A suc" in limuni2.
       if (pos >= 1) {
@@ -5120,13 +5056,47 @@ vstring getTexLongMath(nmbrString *mathString, long statemNum)
           }
         }
       }
-      -----------------------------------------------------------------------*/
-
-
+      // This one puts a space before any "-." that doesn't come after
+      // a parentheses e.g. ax-6 has both cases.
+      if (pos >=1) {
+        // See if we have a non-parenthesis followed by not
+        if (strcmp(g_MathToken[mathString[pos - 1]].tokenName, "(")
+            && !strcmp(g_MathToken[mathString[pos]].tokenName, "-.")) {
+          let(&texLine, cat(texLine, " ", NULL)); // Add a space
+        }
+      }
+      // This one puts a space between "S" and "(" in df-iso.
+      if (pos >=4) {
+        if (!strcmp(g_MathToken[mathString[pos - 4]].tokenName, "Isom")
+            && !strcmp(g_MathToken[mathString[pos - 2]].tokenName, ",")
+            && !strcmp(g_MathToken[mathString[pos]].tokenName, "(")) {
+          let(&texLine, cat(texLine, " ", NULL)); // Add a space
+        }
+      }
+      // This one puts a space between "}" and "(" in funcnvuni proof.
+      if (pos >=1) {
+        // See if we have "}" followed by "("
+        if (!strcmp(g_MathToken[mathString[pos - 1]].tokenName, "}")
+            && !strcmp(g_MathToken[mathString[pos]].tokenName, "(")) {
+          let(&texLine, cat(texLine, " ", NULL)); // Add a space
+        }
+      }
+      // This one puts a space between "}" and "{" in konigsberg proof.
+      if (pos >=1) {
+        // See if we have "}" followed by "("
+        if (!strcmp(g_MathToken[mathString[pos - 1]].tokenName, "}")
+            && !strcmp(g_MathToken[mathString[pos]].tokenName, "{")) {
+          let(&texLine, cat(texLine, " ", NULL)); // Add a space
+        }
+      }
 
       let(&texLine, cat(texLine, tex, NULL));
+
+#############################################################################*/
+
     } // if !g_htmlFlag
     let(&lastTex, tex); // Save for next pass
+
   } // Next pos
 
   // x Discard redundant white space to reduce HTML file size
