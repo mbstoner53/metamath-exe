@@ -4896,6 +4896,15 @@ static long isQuantifier(vstring tokname)
   );
 }
 
+static long isOpening(vstring tokname)
+{
+  return (
+       ( !strcmp(tokname, "(") )
+    || ( !strcmp(tokname, "[") )
+    || ( !strcmp(tokname, "{") )
+  );
+}
+
 /*###########################################################################*/
 
 // Returns the HTML code for GIFs (!g_altHtmlFlag) or Unicode (g_altHtmlFlag),
@@ -4959,7 +4968,7 @@ vstring getTexLongMath(nmbrString *mathString, long statemNum)
         if (
           isQuantifier(g_MathToken[mathString[pos - 2]].tokenName)
           && isObjectVar(g_MathToken[mathString[pos - 1]].tokenName)
-          && strcmp( g_MathToken[mathString[pos]].tokenName, "(")
+          && !isOpening( g_MathToken[mathString[pos]].tokenName)
           && !isQuantifier( g_MathToken[mathString[pos]].tokenName)
           && !isWFFVar(g_MathToken[mathString[pos]].tokenName) ) {
 
@@ -4971,7 +4980,7 @@ vstring getTexLongMath(nmbrString *mathString, long statemNum)
       // unless the previous token was an opening parenthesis.
       if (pos >= 1) {
         if (
-          strcmp(g_MathToken[mathString[pos-1]].tokenName, "(")
+          !isOpening(g_MathToken[mathString[pos]].tokenName)
           && !strcmp(g_MathToken[mathString[pos]].tokenName, "-.") ) {
             let(&texLine, cat(texLine, " ", NULL)); // Add a space.
           }
