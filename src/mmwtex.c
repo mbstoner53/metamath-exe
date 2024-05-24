@@ -4905,6 +4905,14 @@ static long isOpening(vstring tokname)
   );
 }
 
+static long isTF(vstring tokname)
+{
+  return (
+       ( !strcmp(tokname,"T.") )
+    || ( !strcmp(tokname,"F.") )
+  );
+}
+
 /*###########################################################################*/
 
 // Returns the HTML code for GIFs (!g_altHtmlFlag) or Unicode (g_altHtmlFlag),
@@ -4963,14 +4971,15 @@ vstring getTexLongMath(nmbrString *mathString, long statemNum)
 
       // If we have a quantifier, followed by an object variable, followed by
       // anything other than an opening parenthesis, other quantifier, or wff
-      // variable, add a space between the latter two tokens.
+      // variable, T., or F., add a space between the latter two tokens.
       if (pos >= 2) {
         if (
           isQuantifier(g_MathToken[mathString[pos - 2]].tokenName)
           && isObjectVar(g_MathToken[mathString[pos - 1]].tokenName)
           && !isOpening( g_MathToken[mathString[pos]].tokenName)
           && !isQuantifier( g_MathToken[mathString[pos]].tokenName)
-          && !isWFFVar(g_MathToken[mathString[pos]].tokenName) ) {
+          && !isWFFVar(g_MathToken[mathString[pos]].tokenName)
+          && !isTF(g_MathToken[mathString[pos]].tokenName) ) {
 
           let(&texLine, cat(texLine, " ", NULL)); // Add a space.
         }
@@ -4980,7 +4989,7 @@ vstring getTexLongMath(nmbrString *mathString, long statemNum)
       // unless the previous token was an opening parenthesis.
       if (pos >= 1) {
         if (
-          !isOpening(g_MathToken[mathString[pos]].tokenName)
+          !isOpening(g_MathToken[mathString[pos - 1]].tokenName)
           && !strcmp(g_MathToken[mathString[pos]].tokenName, "-.") ) {
             let(&texLine, cat(texLine, " ", NULL)); // Add a space.
           }
