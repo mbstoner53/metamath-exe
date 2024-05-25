@@ -4856,28 +4856,72 @@ static long eatDigits(vstring tokname, long offset) {
   return offset;
 }
 
-// Must be a one or more alphabetic characters followed by one or more digits.
-static long isObjectVar(vstring tokname)
+// Match a "w_" followed by one or more letters, followed by zero or more digits.
+static long isWFFVar(vstring tokname)
 {
   long offset;
 
-  if ( isalpha((unsigned char)tokname[0]) ) {
-    offset = eatLetters(tokname, 0);
+  if ( ( tokname[0] == 'w' ) && ( tokname[1] == '_' )
+    && isalpha((unsigned char)tokname[2] ) ) {
+    
+    offset = eatLetters(tokname, 3);
     if ( !tokname[ eatDigits(tokname, offset) ] )
       return 1;
   }
   return 0;
 }
 
-// Must be "w_" followed by one or more alphabetic characters followed by one
-// or more digits.
-static long isWFFVar(vstring tokname)
-{  
+// Must be "T." or "F.". 
+static long isWFFConst(vstring tokname)
+{
+  return ( 
+    !strcmp(tokname, "T.")
+    || !strcmp(tokname, "F.")  
+  );
+}
+
+// Any predicate symbol.
+static long isPred(vstring tokname)
+{
+  return (
+    !strcmp(tokname, "=")
+    || !strcmp(tokname, "e.")
+  );
+}
+
+// Quantifier that applies to entire WFF.
+static long isWFFQuantifier(vstring tokname)
+{
+  return ( 
+       !strcmp(tokname, "A.")
+    || !strcmp(tokname, "E.")
+    || !strcmp(tokname, "F/")
+    || !strcmp(tokname, "E!")
+  );
+}
+
+// Match one of the following...
+
+// 1. An uppercase letter followed by zero or more other letters, followed by
+// zero or mure digits. (class)
+// 2. A "t_" follwed by one or more letters, then zero or more digits. (term)
+// 3. A "c_" followed by one or more letters, then zero or more digits. (class)
+static long isTermVar(vstring tokname)
+{
   long offset;
 
-  if ( ( tokname[0] == 'w' ) && ( tokname[1] == '_' ) ) {
-    if ( isalpha((unsigned char)tokname[2]) ) {
-      offset = eatLetters(tokname, 2);
+  if ( isalpha((unsigned char)tokname[0]) ) {
+    if ( isupper((unsigned char)tokname[0]) ) {
+
+      offset = eatLetters(tokname, 1);
+      if ( !tokname[ eatDigits(tokname, offset) ] )
+        return 1;
+    } 
+    else if ( ( ( tokname[0] == 't' ) || ( tokname[0] == 'c') ) 
+      && ( tokname[1] == '_' )
+      && isalpha((unsigned char)tokname[2]) ) {      
+
+      offset = eatLetters(tokname, 3);
       if ( !tokname[ eatDigits(tokname, offset) ] )
         return 1;
     }
@@ -4885,17 +4929,58 @@ static long isWFFVar(vstring tokname)
   return 0;
 }
 
-static long isQuantifier(vstring tokname)
+// Must be a constant symbol or string of one or more digits.
+static long isTermConst(vstring tokname)
 {
-  return ( 
-       ( !strcmp(tokname, "A.") )
-    || ( !strcmp(tokname, "E.") )
-    || ( !strcmp(tokname, "F/") )
-    || ( !strcmp(tokname, "F/t") )
-    || ( !strcmp(tokname, "E!") )
+  if ( isdigit((unsigned char)tokname[0]) ) {
+    return ( !tokname[ eatDigits(tokname, 1) ] );
+  }
+  return 0;
+}
+
+// Any function symbol.
+static long isFunc(vstring tokname)
+{
+  return (
+    !strcmp(tokname, "+")
+    || !strcmp(tokname, "x." )
+    || !strcmp(tokname, "s`")
   );
 }
 
+// Any leading function symbol.
+static long isLeadFunc(vstring tokname)
+{
+  return (
+    ( !strcmp(tokname, "s`") )
+  );
+}
+
+// Quantifier that applies to term (or class).
+static long isTermQuantifier(vstring tokname)
+{
+  return (
+       ( !strcmp(tokname, "F/t") )
+  );
+}
+
+// Match a lowercase letter followed by zero or more other letters followed
+// by zero or more digits.
+static long isObjectVar(vstring tokname)
+{
+  long offset;
+
+  if ( isalpha((unsigned char)tokname[0]) 
+    && islower((unsigned char)tokname[0]) ) {
+      
+    offset = eatLetters(tokname, 1);
+    if ( !tokname[ eatDigits(tokname, offset) ] )
+      return 1;
+  }
+  return 0;
+}
+
+// Opening brace.
 static long isOpening(vstring tokname)
 {
   return (
@@ -4905,12 +4990,49 @@ static long isOpening(vstring tokname)
   );
 }
 
-static long isTF(vstring tokname)
+// This function looks ahead to see if the symbol at "pos" is the
+// beginning of a term. 
+static long isTermStart( nmbrString *mathString, long pos, long mathlen)
 {
-  return (
-       ( !strcmp(tokname,"T.") )
-    || ( !strcmp(tokname,"F.") )
-  );
+  long depth;
+
+  // All of the following symbol types indicate the start of a term.
+  if ( isObjectVar(g_MathToken[mathString[pos]].tokenName)
+    || isTermVar(g_MathToken[mathString[pos]].tokenName)
+    || isLeadFunc(g_MathToken[mathString[pos]].tokenName)
+    || isTermConst(g_MathToken[mathString[pos]].tokenName) ) {
+
+    return 1;
+  }
+  else if ( !strcmp(g_MathToken[mathString[pos]].tokenName,"(" ) ) {
+    // Need to determine if opening parenthesis is the start of a
+    // term or the start of a WFF. It could be either, so we need
+    // to look ahead to see.
+
+    depth = 1;
+    while ( ++pos < mathlen ) {
+      if ( !strcmp(g_MathToken[mathString[pos]].tokenName,")" ) ) {
+        --depth;
+      } else if ( !strcmp(g_MathToken[mathString[pos]].tokenName,"(" ) ) {
+        ++depth;
+      } else if ( isWFFVar(g_MathToken[mathString[pos]].tokenName)
+        || isPred(g_MathToken[mathString[pos]].tokenName)
+        || isWFFConst(g_MathToken[mathString[pos]].tokenName)
+        || isTermQuantifier(g_MathToken[mathString[pos]].tokenName) ) {
+        // We cannot be inside a term if we encounter a wff symbol, a predicate,
+        // symbol, or a term quantifier. We must encounter one of these sooner
+        // or later if the opening parenthesis was the opening of a wff.
+        return 0;
+      }
+      
+      if ( depth == 0 ) {
+        // We reached the corresponding closing parenthesis without encountering
+        // a wff symbol or predicate. Therefore the parentheses enclose a term.
+        return 1;
+      }
+    }
+  }
+  return 0;
 }
 
 /*###########################################################################*/
@@ -4921,17 +5043,20 @@ static long isTF(vstring tokname)
 // Warning: The caller must deallocate the returned vstring.
 vstring getTexLongMath(nmbrString *mathString, long statemNum)
 {
-  long pos;
+  long pos, mathlen;
   vstring_def(tex);
   vstring_def(texLine);
   vstring_def(lastTex);
   flag alphnew, alphold, unknownnew, unknownold;
 
   if (!g_texDefsRead) bug(2322); // LaTeX defs were not read
-  let(&texLine, "");
 
+  mathlen = nmbrLen(mathString);
+
+  let(&texLine, "");
   let(&lastTex, "");
-  for (pos = 0; pos < nmbrLen(mathString); pos++) {
+  
+  for (pos = 0; pos < mathlen; pos++) {
     free_vstring(tex);
     // tokenToTex allocates tex; we must deallocate it
     tex = tokenToTex(g_MathToken[mathString[pos]].tokenName, statemNum);
@@ -4969,30 +5094,52 @@ vstring getTexLongMath(nmbrString *mathString, long statemNum)
 /*#############################################################################
 // New */
 
-      // If we have a quantifier, followed by an object variable, followed by
-      // anything other than an opening parenthesis, other quantifier, or wff
-      // variable, T., or F., add a space between the latter two tokens.
+      // If we have a WFF quantifier, followed by an object variable, followed
+      // by a the opening of a term, then add a space before the start of the
+      // term.
+      if (pos >= 2) {
+        if ( isWFFQuantifier(g_MathToken[mathString[pos - 2]].tokenName) 
+          && isObjectVar(g_MathToken[mathString[pos - 1]].tokenName) ) {
+          
+          if ( isTermStart(mathString, pos, mathlen) )
+            let(&texLine, cat(texLine, " ", NULL));
+        } 
+      }
+
+      // If we have a substitution before the start of a term, add a space
+      // between the "]" and the start of the term.
+      if (pos >= 3) {
+        if ( !strcmp(g_MathToken[mathString[pos - 3]].tokenName, "/")
+          && isObjectVar(g_MathToken[mathString[pos - 2]].tokenName)
+          && !strcmp(g_MathToken[mathString[pos - 1]].tokenName, "]") ) {
+
+            if ( isTermStart(mathString, pos, mathlen) )
+              let(&texLine, cat(texLine, " ", NULL));
+          }
+      }
+
+      // If we have a term quantifier, followed by an object variable, followed
+      // by anything other than an opening brace, add a space between the latter
+      // two.
       if (pos >= 2) {
         if (
-          isQuantifier(g_MathToken[mathString[pos - 2]].tokenName)
+          isTermQuantifier(g_MathToken[mathString[pos - 2]].tokenName)
           && isObjectVar(g_MathToken[mathString[pos - 1]].tokenName)
-          && !isOpening( g_MathToken[mathString[pos]].tokenName)
-          && !isQuantifier( g_MathToken[mathString[pos]].tokenName)
-          && !isWFFVar(g_MathToken[mathString[pos]].tokenName)
-          && !isTF(g_MathToken[mathString[pos]].tokenName) ) {
+          && !isOpening(g_MathToken[mathString[pos]].tokenName) ) {
 
-          let(&texLine, cat(texLine, " ", NULL)); // Add a space.
+          let(&texLine, cat(texLine, " ", NULL)); 
         }
       }
 
-      // If we have a negation, i.e "-.", add a space immediately before it,
-      // unless the previous token was an opening parenthesis.
+      // If we have a logical negation symbol, add a space immediately
+      // before it, unless the previous token was an opening parenthesis.
       if (pos >= 1) {
         if (
-          !isOpening(g_MathToken[mathString[pos - 1]].tokenName)
+          strcmp(g_MathToken[mathString[pos - 1]].tokenName, "(")
           && !strcmp(g_MathToken[mathString[pos]].tokenName, "-.") ) {
-            let(&texLine, cat(texLine, " ", NULL)); // Add a space.
-          }
+
+          let(&texLine, cat(texLine, " ", NULL)); // Add a space.
+        }
       }
 
       let(&texLine, cat(texLine, tex, NULL));
