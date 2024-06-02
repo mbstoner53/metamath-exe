@@ -4865,8 +4865,10 @@ static long isWFFVar(vstring tokname)
     && isalpha((unsigned char)tokname[2] ) ) {
     
     offset = eatLetters(tokname, 3);
-    if ( !tokname[ eatDigits(tokname, offset) ] )
+    if ( !tokname[ eatDigits(tokname, offset) ] ) {
+      // We reached the end of the string after eating any digits. 
       return 1;
+    }
   }
   return 0;
 }
@@ -4900,62 +4902,6 @@ static long isWFFQuantifier(vstring tokname)
   );
 }
 
-// Match one of the following...
-
-// 1. An uppercase letter followed by zero or more other letters, followed by
-// zero or mure digits. (class)
-// 2. A "t_" follwed by one or more letters, then zero or more digits. (term)
-// 3. A "c_" followed by one or more letters, then zero or more digits. (class)
-static long isTermVar(vstring tokname)
-{
-  long offset;
-
-  if ( isalpha((unsigned char)tokname[0]) ) {
-    if ( isupper((unsigned char)tokname[0]) ) {
-
-      offset = eatLetters(tokname, 1);
-      if ( !tokname[ eatDigits(tokname, offset) ] )
-        return 1;
-    } 
-    else if ( ( ( tokname[0] == 't' ) || ( tokname[0] == 'c') ) 
-      && ( tokname[1] == '_' )
-      && isalpha((unsigned char)tokname[2]) ) {      
-
-      offset = eatLetters(tokname, 3);
-      if ( !tokname[ eatDigits(tokname, offset) ] )
-        return 1;
-    }
-  }
-  return 0;
-}
-
-// Must be a constant symbol or string of one or more digits.
-static long isTermConst(vstring tokname)
-{
-  if ( isdigit((unsigned char)tokname[0]) ) {
-    return ( !tokname[ eatDigits(tokname, 1) ] );
-  }
-  return 0;
-}
-
-// Any function symbol.
-static long isFunc(vstring tokname)
-{
-  return (
-    !strcmp(tokname, "+")
-    || !strcmp(tokname, "x." )
-    || !strcmp(tokname, "s`")
-  );
-}
-
-// Any leading function symbol.
-static long isLeadFunc(vstring tokname)
-{
-  return (
-    ( !strcmp(tokname, "s`") )
-  );
-}
-
 // Quantifier that applies to term (or class).
 static long isTermQuantifier(vstring tokname)
 {
@@ -4974,8 +4920,10 @@ static long isObjectVar(vstring tokname)
     && islower((unsigned char)tokname[0]) ) {
       
     offset = eatLetters(tokname, 1);
-    if ( !tokname[ eatDigits(tokname, offset) ] )
+    if ( !tokname[ eatDigits(tokname, offset) ] ) {
+      // We reached the end of the string after eating any digits.
       return 1;
+    }
   }
   return 0;
 }
@@ -4990,45 +4938,111 @@ static long isOpening(vstring tokname)
   );
 }
 
-// This function looks ahead to see if the symbol at "pos" is the
-// beginning of a term. 
-static long isTermStart( nmbrString *mathString, long pos, long mathlen)
+static long isEnclosedWFFStart(nmbrString *mathString, long pos, long mathlen);
+
+// Detect opening bracket of proper substitution block.
+// Look ahead for "[ ... / objvar ]".
+static long isPSubStart(nmbrString *mathString, long pos, long mathlen)
 {
-  long depth;
+  long sbdepth; // square bracked nesting depth.
 
-  // All of the following symbol types indicate the start of a term.
-  if ( isObjectVar(g_MathToken[mathString[pos]].tokenName)
-    || isTermVar(g_MathToken[mathString[pos]].tokenName)
-    || isLeadFunc(g_MathToken[mathString[pos]].tokenName)
-    || isTermConst(g_MathToken[mathString[pos]].tokenName) ) {
+  if ( !strcmp(g_MathToken[mathString[pos]].tokenName, "[") ) {
 
-    return 1;
+    sbdepth = 1;
+    while ( ++pos < mathlen ) {
+
+      if ( !strcmp(g_MathToken[mathString[pos]].tokenName, "]") )
+        --sbdepth;
+      else if ( !strcmp(g_MathToken[mathString[pos]].tokenName, "[") )
+        ++sbdepth;
+      
+      if ( ( sbdepth == 0 ) && ( pos >= 4 ) )  {
+        // We reached the closing bracket and have enough room behind to fit
+        // a proper substitution block, so check behind.
+        return ( !strcmp(g_MathToken[mathString[pos - 2]].tokenName, "/")
+          && isObjectVar(g_MathToken[mathString[pos - 1]].tokenName) );
+      }
+    }
   }
-  else if ( !strcmp(g_MathToken[mathString[pos]].tokenName,"(" ) ) {
+  return 0;
+}
+
+// Detect opening curley brace of class abstraction block.
+// Look ahead for "{ objvar : ".
+static long isClAbStart(nmbrString *mathString, long pos, long mathlen)
+{
+  if ( pos + 4 < mathlen ) {
+    // We have room ahead to fit a class abstraction block, so check ahead.
+    return ( ( !strcmp( g_MathToken[mathString[pos]].tokenName, "{") )
+      && ( isObjectVar( g_MathToken[mathString[pos + 1]].tokenName ) )
+      && ( !strcmp( g_MathToken[mathString[pos + 2]].tokenName, "|") ) );
+  }
+  return 0;
+}
+
+// Detect starting token of an enclosed WFF.
+static long isEnclosedWFFStart(nmbrString *mathString, long pos, long mathlen)
+{
+  long pdepth; // parenthesis nesting depth.
+  long cbdepth; // curley bracket nesting depth.
+
+  if ( isWFFVar(g_MathToken[mathString[pos]].tokenName)
+    || isWFFConst(g_MathToken[mathString[pos]].tokenName)
+    || isWFFQuantifier(g_MathToken[mathString[pos]].tokenName)
+    || isTermQuantifier(g_MathToken[mathString[pos]].tokenName)
+    || isPSubStart(mathString, pos, mathlen ) ) {
+    // All of the above types indicate the start of a WFF.
+    return 1;
+  } else if ( !strcmp(g_MathToken[mathString[pos]].tokenName,"(" ) ) {
     // Need to determine if opening parenthesis is the start of a
     // term or the start of a WFF. It could be either, so we need
     // to look ahead to see.
-
-    depth = 1;
+    pdepth = 1;
     while ( ++pos < mathlen ) {
+
+      if ( isClAbStart( mathString, pos, mathlen ) ) {
+        // Skip past class abstraction block, since a WFF within a class
+        // abstraction is part of a term.
+        cbdepth = 1;
+        while ( ++pos < mathlen ) {
+
+          if ( !strcmp(g_MathToken[mathString[pos]].tokenName, "}") )
+            --cbdepth;
+          else if ( !strcmp(g_MathToken[mathString[pos]].tokenName, "{") )
+            ++cbdepth;
+
+          if ( cbdepth == 0 ) {
+            // Break out when we reach closing curley bracket.
+            break;  
+          }
+        }
+        if ( cbdepth != 0 ) {
+          // We reached the end of the file before finding a closing curley
+          // bracket.
+          return 0;
+        }
+      }
+
       if ( !strcmp(g_MathToken[mathString[pos]].tokenName,")" ) ) {
-        --depth;
+        --pdepth;
       } else if ( !strcmp(g_MathToken[mathString[pos]].tokenName,"(" ) ) {
-        ++depth;
-      } else if ( isWFFVar(g_MathToken[mathString[pos]].tokenName)
-        || isPred(g_MathToken[mathString[pos]].tokenName)
+        ++pdepth;
+      } else if ( isPred(g_MathToken[mathString[pos]].tokenName)
+        || isWFFVar(g_MathToken[mathString[pos]].tokenName)
         || isWFFConst(g_MathToken[mathString[pos]].tokenName)
+        || isWFFQuantifier(g_MathToken[mathString[pos]].tokenName)
         || isTermQuantifier(g_MathToken[mathString[pos]].tokenName) ) {
-        // We cannot be inside a term if we encounter a wff symbol, a predicate,
-        // symbol, or a term quantifier. We must encounter one of these sooner
-        // or later if the opening parenthesis was the opening of a wff.
-        return 0;
+        // We must be inside a WFF if we encounter a predicate, a WFF symbol,
+        // or a quantifier. We must encounter one of these sooner or later if
+        // the opening parenthesis was the opening of a wff.
+        return 1;
       }
       
-      if ( depth == 0 ) {
-        // We reached the corresponding closing parenthesis without encountering
-        // a wff symbol or predicate. Therefore the parentheses enclose a term.
-        return 1;
+      if ( pdepth == 0 ) {
+        // We reached the corresponding closing parenthesis without
+        // encountering a predicate symbol, WFF symbol, or quantifier.
+        // Therefore the parentheses do not enclose a WFF.
+        return 0;
       }
     }
   }
@@ -5095,32 +5109,33 @@ vstring getTexLongMath(nmbrString *mathString, long statemNum)
 // New */
 
       // If we have a WFF quantifier, followed by an object variable, followed
-      // by a the opening of a term, then add a space before the start of the
-      // term.
+      // by a anything that is not an enclosed WFF, then add a space right
+      // after the object variable.
       if (pos >= 2) {
         if ( isWFFQuantifier(g_MathToken[mathString[pos - 2]].tokenName) 
           && isObjectVar(g_MathToken[mathString[pos - 1]].tokenName) ) {
           
-          if ( isTermStart(mathString, pos, mathlen) )
+          if ( !isEnclosedWFFStart(mathString, pos, mathlen) )
             let(&texLine, cat(texLine, " ", NULL));
         } 
       }
 
-      // If we have a substitution before the start of a term, add a space
-      // between the "]" and the start of the term.
+      // If we have a proper substitution block followed by anything that is
+      // not an enclosed WFF, then add a space right raght after the closing
+      // square bracket.
       if (pos >= 3) {
         if ( !strcmp(g_MathToken[mathString[pos - 3]].tokenName, "/")
           && isObjectVar(g_MathToken[mathString[pos - 2]].tokenName)
           && !strcmp(g_MathToken[mathString[pos - 1]].tokenName, "]") ) {
 
-            if ( isTermStart(mathString, pos, mathlen) )
+            if ( !isEnclosedWFFStart(mathString, pos, mathlen) )
               let(&texLine, cat(texLine, " ", NULL));
           }
       }
 
       // If we have a term quantifier, followed by an object variable, followed
-      // by anything other than an opening brace, add a space between the latter
-      // two.
+      // by anything other than an opening bracket, add a space between the
+      // latter two.
       if (pos >= 2) {
         if (
           isTermQuantifier(g_MathToken[mathString[pos - 2]].tokenName)
